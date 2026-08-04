@@ -101,6 +101,19 @@ Latest result: 51 backend tests passed; all listed checks passed. Browser verifi
 
 Detailed requirements, assumptions, architecture, and data lifecycle are documented in [DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md). The factual work, issue, decision, and validation history is in [PROJECT_LOG.md](PROJECT_LOG.md).
 
+## AI Usage
+
+- **Tool:** GitHub Copilot in VS Code.
+- **AI-assisted work:** Copilot assisted with requirements analysis, architecture options, implementation and test drafts, debugging, browser verification, and documentation. Most code, test, and documentation drafts were generated or substantially assisted by Copilot; the human contribution focused on direction, decisions, review, and acceptance.
+- **Development governance:** Before implementation, I defined the development plan, working rules, factual project log, validation expectations, and the information that needed to be maintained throughout the project.
+- **AI constraints:** I required evidence for completed work, no fabricated test results, no claims for unfinished capabilities, preservation of existing changes, and executable checks after substantive edits.
+- **Requirements and scope:** I prioritized the required database, API, and UI vertical slice within the timebox and evaluated which work should remain as future improvements.
+- **Business semantics:** I participated in decisions about fixed CSV seeding, transition assumptions, same-status no-ops, UI status reset, full command-line reset, and `updated_at` behavior.
+- **Architecture:** Copilot and I discussed options and trade-offs. I made or approved the final choices based on the brief, the Windows environment, and live-demo needs, including Windows-native orchestration, Alembic, synchronous SQLAlchemy, idempotent seeding, row locking, and frontend/backend state boundaries.
+- **Visual and interaction direction:** After reviewing the running UI, I proposed changes to the blue-and-white visual direction, information hierarchy, button presentation, spacing, sorting controls, and mobile layout.
+- **Review and delivery:** I defined acceptance criteria, reviewed automated, browser, and PostgreSQL evidence, decided whether generated changes were acceptable, and controlled the final README and public repository content.
+- **AI mistake and detection:** One AI-generated change added configurable web ports but left FastAPI's default CORS origins tied to port 5173. An isolated-port browser check exposed the issue: Vite loaded on 5184, but API requests were rejected. The fix derived default loopback origins from `WEB_PORT`, preserved explicit `CORS_ORIGINS`, and added regression tests.
+
 ## What I Would Do Next
 
 1. Add `scripts/test.ps1` and rehearse the README from a clean environment.
