@@ -1,0 +1,3 @@
+* text=auto
+data/shipments.csv -text -diff
+*.sh text eol=lf

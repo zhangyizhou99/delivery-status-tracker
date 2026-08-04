@@ -1,0 +1,60 @@
+:root {
+  --ink: #172033;
+  --ink-inverse: #ffffff;
+  --muted: #64748b;
+  --paper: #ffffff;
+  --paper-warm: #f8fafc;
+  --canvas: #f3f6fb;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+  --signal: #2563eb;
+  --signal-dark: #1d4ed8;
+  --signal-soft: #eff6ff;
+  --success: #10b981;
+  --success-dark: #047857;
+  --warning: #f59e0b;
+  --warning-dark: #b45309;
+  --danger: #ef4444;
+  --danger-dark: #b91c1c;
+  --danger-soft: #fef2f2;
+  --font-display: Bahnschrift, 'Aptos Display', 'Trebuchet MS', sans-serif;
+  --font-body: Aptos, Calibri, 'Trebuchet MS', sans-serif;
+  --font-mono: 'Cascadia Mono', Consolas, monospace;
+
+  color: var(--ink);
+  background-color: var(--canvas);
+  font-family: var(--font-body);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: var(--canvas);
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background-color: var(--canvas);
+  background-image: linear-gradient(180deg, #ffffff 0, #f7f9fd 220px, var(--canvas) 520px);
+  background-repeat: no-repeat;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  letter-spacing: 0;
+}
