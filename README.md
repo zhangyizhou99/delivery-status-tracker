@@ -39,6 +39,114 @@ The development script applies Alembic migrations, inserts any missing records f
 
 Press `Ctrl+C` to stop both services. After the initial setup, daily development only requires `.\scripts\dev.ps1`.
 
+## macOS Quick Start
+
+The PowerShell scripts in `scripts/` are Windows-first. For macOS, use the dedicated shell scripts.
+
+Prerequisites:
+
+- PostgreSQL 14-18 running on `localhost:5432`
+- Python 3.11-3.14
+- Node.js `20.19+` within the 20.x line, or `22.12+`
+- npm with access to a reachable registry
+
+Clone and enter the repository:
+
+```bash
+git clone https://github.com/zhangyizhou99/delivery-status-tracker.git
+cd delivery-status-tracker
+```
+
+1. Run one-time setup:
+
+```bash
+./scripts/setup-mac.sh
+```
+
+If you need to use a specific registry for this run:
+
+```bash
+NPM_REGISTRY=https://registry.npmjs.org/ ./scripts/setup-mac.sh
+```
+
+2. Start services:
+
+```bash
+./scripts/dev-mac.sh
+```
+
+Optional backend-only mode:
+
+```bash
+./scripts/dev-mac.sh --backend-only
+```
+
+Optional setup mode that skips frontend dependency install:
+
+```bash
+./scripts/setup-mac.sh --skip-frontend
+```
+
+### Manual Equivalent
+
+If you prefer to run each step manually, use the commands below.
+
+1. Create a virtual environment and install backend dependencies:
+
+```bash
+python3 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip
+./.venv/bin/python -m pip install -r backend/requirements.txt
+```
+
+2. Configure environment variables:
+
+```bash
+cp .env.example .env
+```
+
+3. Apply database migrations:
+
+```bash
+cd backend
+../.venv/bin/python -m alembic upgrade head
+cd ..
+```
+
+4. Seed missing shipment rows from CSV:
+
+```bash
+cd backend
+../.venv/bin/python -m app.seed
+cd ..
+```
+
+5. Start backend:
+
+```bash
+./.venv/bin/python -m uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 8000
+```
+
+6. In another terminal, install frontend dependencies and start Vite:
+
+```bash
+cd frontend
+npm install
+npm run dev -- --host 0.0.0.0 --port 5173
+```
+
+Endpoints:
+
+- Web: `http://localhost:5173`
+- API docs: `http://localhost:8000/docs`
+- Health: `http://localhost:8000/api/health`
+
+If `npm install` fails with registry/network errors (for example `ENOTCONN`), retry with an explicit registry:
+
+```bash
+npm install --registry https://registry.npmjs.org/
+```
+
 ## Technology and Scope
 
 - PostgreSQL 14-18, Python 3.11-3.14, FastAPI, SQLAlchemy 2, Alembic, and psycopg 3
