@@ -16,6 +16,7 @@ import {
   API_URL,
   getHealth,
   getShipments,
+  isShipmentStatusConflict,
   resetShipmentStatuses,
   updateShipmentStatus,
   type HealthResponse,
@@ -141,11 +142,34 @@ function App() {
           : current,
       )
     } catch (requestError) {
-      setRowErrors((current) => ({
-        ...current,
-        [shipment.reference]:
-          requestError instanceof Error ? requestError.message : 'Unable to update shipment',
-      }))
+      if (isShipmentStatusConflict(requestError)) {
+        const { current_status, requested_status, allowed_statuses } = requestError.detail
+        const allowedStatusLabels = allowed_statuses.map((status) => statusLabels[status]).join(', ')
+        let refreshMessage = 'Latest server data loaded.'
+
+        try {
+          setShipments(await getShipments(shipmentSort))
+        } catch {
+          refreshMessage = 'Automatic refresh failed; use the refresh button to reload.'
+        }
+
+        setRowErrors((current) => ({
+          ...current,
+          [shipment.reference]: [
+            'This shipment changed on the server.',
+            `Current: ${statusLabels[current_status]}.`,
+            `Requested: ${statusLabels[requested_status]}.`,
+            `Allowed next: ${allowedStatusLabels || 'none'}.`,
+            refreshMessage,
+          ].join(' '),
+        }))
+      } else {
+        setRowErrors((current) => ({
+          ...current,
+          [shipment.reference]:
+            requestError instanceof Error ? requestError.message : 'Unable to update shipment',
+        }))
+      }
     } finally {
       setUpdatingStatuses((current) => {
         const next = { ...current }
@@ -397,16 +421,16 @@ function App() {
                                   </button>
                                 ))}
                               </div>
-                              {rowErrors[shipment.reference] && (
-                                <p
-                                  className="row-error"
-                                  id={`error-${shipment.reference}`}
-                                  role="alert"
-                                >
-                                  {rowErrors[shipment.reference]}
-                                </p>
-                              )}
                             </div>
+                          )}
+                          {rowErrors[shipment.reference] && (
+                            <p
+                              className="row-error"
+                              id={`error-${shipment.reference}`}
+                              role="alert"
+                            >
+                              {rowErrors[shipment.reference]}
+                            </p>
                           )}
                         </td>
                         </tr>

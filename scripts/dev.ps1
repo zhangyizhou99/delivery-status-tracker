@@ -4,17 +4,27 @@ param(
     [ValidateRange(1, 65535)]
     [int]$ApiPort = 8000,
     [ValidateRange(1, 65535)]
-    [int]$WebPort = 5173
+    [int]$WebPort = 5173,
+    [string]$PostgresBin = $env:POSTGRES_BIN,
+    [string]$PostgresService = $env:POSTGRES_SERVICE,
+    [string]$PythonExecutable = $env:PYTHON_EXECUTABLE,
+    [string]$NodeBin = $env:NODE_BIN
 )
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'postgres.ps1')
+. (Join-Path $PSScriptRoot 'runtime.ps1')
+Assert-SupportedPowerShell
+
 $rootDirectory = Split-Path -Parent $PSScriptRoot
 $backendDirectory = Join-Path $rootDirectory 'backend'
 $frontendDirectory = Join-Path $rootDirectory 'frontend'
-$pythonExecutable = Join-Path $backendDirectory '.venv\Scripts\python.exe'
-$pgIsReadyExecutable = 'C:\Program Files\PostgreSQL\16\bin\pg_isready.exe'
+$venvPythonExecutable = Join-Path $backendDirectory '.venv\Scripts\python.exe'
+$postgresBinDirectory = Resolve-PostgresBinDirectory -RequestedPath $PostgresBin
+$pgIsReadyExecutable = Join-Path $postgresBinDirectory 'pg_isready.exe'
+$psqlExecutable = Join-Path $postgresBinDirectory 'psql.exe'
 $apiProcess = $null
 $webProcess = $null
 
@@ -57,32 +67,61 @@ function Wait-ForHttpEndpoint {
     throw "Timed out waiting for $Uri."
 }
 
-if (-not (Test-Path -LiteralPath $pythonExecutable) -or -not (Test-Path -LiteralPath (Join-Path $frontendDirectory 'node_modules'))) {
-    & (Join-Path $PSScriptRoot 'setup.ps1')
+if (-not (Test-Path -LiteralPath $venvPythonExecutable) -or -not (Test-Path -LiteralPath (Join-Path $frontendDirectory 'node_modules'))) {
+    $setupParameters = @{}
+    if ($PostgresBin) {
+        $setupParameters['PostgresBin'] = $PostgresBin
+    }
+    if ($PostgresService) {
+        $setupParameters['PostgresService'] = $PostgresService
+    }
+    if ($PythonExecutable) {
+        $setupParameters['PythonExecutable'] = $PythonExecutable
+    }
+    if ($NodeBin) {
+        $setupParameters['NodeBin'] = $NodeBin
+    }
+    & (Join-Path $PSScriptRoot 'setup.ps1') @setupParameters
 }
 
-if (-not (Test-Path -LiteralPath $pgIsReadyExecutable)) {
-    throw "PostgreSQL 16 readiness tool was not found: $pgIsReadyExecutable"
+$venvPythonVersion = Get-PythonRuntimeVersion -Executable $venvPythonExecutable
+if (-not (Test-SupportedPythonVersion -Version $venvPythonVersion)) {
+    throw "backend/.venv must use Python 3.11 through 3.14; found $venvPythonVersion. Remove backend/.venv and rerun setup."
 }
+$nodeRuntime = Resolve-NodeRuntime -RequestedBin $NodeBin
 
 & $pgIsReadyExecutable -h '127.0.0.1' -p 5432 -q
 if ($LASTEXITCODE -ne 0) {
-    throw 'PostgreSQL is not accepting connections on localhost:5432. Run ./scripts/setup.ps1 first.'
+    $postgresServiceName = Resolve-PostgresServiceName `
+        -RequestedName $PostgresService `
+        -BinDirectory $postgresBinDirectory
+    $postgresWindowsService = Get-Service -Name $postgresServiceName
+    if ($postgresWindowsService.Status -ne 'Running') {
+        Start-Service -Name $postgresWindowsService.Name
+    }
+
+    & $pgIsReadyExecutable -h '127.0.0.1' -p 5432 -q
+    if ($LASTEXITCODE -ne 0) {
+        throw 'PostgreSQL is not accepting connections on localhost:5432.'
+    }
 }
 
-$npmExecutable = Get-Command 'npm.cmd' -ErrorAction SilentlyContinue
-if (-not $npmExecutable) {
-    throw 'npm.cmd was not found.'
+$env:PGPASSWORD = 'tracker'
+try {
+    $null = Assert-SupportedPostgresServer -PsqlExecutable $psqlExecutable
+}
+finally {
+    Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
 }
 
 Push-Location $backendDirectory
 try {
-    & $pythonExecutable -m alembic upgrade head
+    & $venvPythonExecutable -m alembic upgrade head
     if ($LASTEXITCODE -ne 0) {
         throw 'Database migration failed.'
     }
 
-    & $pythonExecutable -m app.seed
+    & $venvPythonExecutable -m app.seed
     if ($LASTEXITCODE -ne 0) {
         throw 'Shipment seed failed.'
     }
@@ -91,9 +130,12 @@ finally {
     Pop-Location
 }
 
-$env:API_PORT = $ApiPort.ToString()
-$env:WEB_PORT = $WebPort.ToString()
-$env:VITE_API_URL = "http://localhost:$ApiPort"
+$previousApiPort = [Environment]::GetEnvironmentVariable('API_PORT', 'Process')
+$previousWebPort = [Environment]::GetEnvironmentVariable('WEB_PORT', 'Process')
+$previousViteApiUrl = [Environment]::GetEnvironmentVariable('VITE_API_URL', 'Process')
+[Environment]::SetEnvironmentVariable('API_PORT', $ApiPort.ToString(), 'Process')
+[Environment]::SetEnvironmentVariable('WEB_PORT', $WebPort.ToString(), 'Process')
+[Environment]::SetEnvironmentVariable('VITE_API_URL', "http://localhost:$ApiPort", 'Process')
 
 $apiArguments = @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', $ApiPort.ToString())
 if (-not $SmokeTest) {
@@ -103,10 +145,10 @@ if (-not $SmokeTest) {
 $webArguments = @('run', 'dev', '--', '--host', '127.0.0.1', '--port', $WebPort.ToString(), '--strictPort')
 
 try {
-    $apiProcess = Start-Process -FilePath $pythonExecutable -ArgumentList $apiArguments -WorkingDirectory $backendDirectory -PassThru -NoNewWindow
+    $apiProcess = Start-Process -FilePath $venvPythonExecutable -ArgumentList $apiArguments -WorkingDirectory $backendDirectory -PassThru -NoNewWindow
     Wait-ForHttpEndpoint -Uri "http://127.0.0.1:$ApiPort/api/health" -Process $apiProcess
 
-    $webProcess = Start-Process -FilePath $npmExecutable.Source -ArgumentList $webArguments -WorkingDirectory $frontendDirectory -PassThru -NoNewWindow
+    $webProcess = Start-Process -FilePath $nodeRuntime.NpmExecutable -ArgumentList $webArguments -WorkingDirectory $frontendDirectory -PassThru -NoNewWindow
     Wait-ForHttpEndpoint -Uri "http://127.0.0.1:$WebPort" -Process $webProcess
 
     Write-Host "Web UI:   http://localhost:$WebPort" -ForegroundColor Green
@@ -132,4 +174,7 @@ try {
 finally {
     Stop-ProcessTree -Process $webProcess
     Stop-ProcessTree -Process $apiProcess
+    [Environment]::SetEnvironmentVariable('API_PORT', $previousApiPort, 'Process')
+    [Environment]::SetEnvironmentVariable('WEB_PORT', $previousWebPort, 'Process')
+    [Environment]::SetEnvironmentVariable('VITE_API_URL', $previousViteApiUrl, 'Process')
 }

@@ -57,7 +57,7 @@
 
 ### 3.4 可复现性优先于本机便利
 
-- 主运行路径必须是 Windows PowerShell + PostgreSQL 16；README 明确列出 Python 3.12、Node 和 PostgreSQL 系统前提。
+- 主运行路径必须是 Windows PowerShell + PostgreSQL 14–18；README 明确列出 Python、Node 和 PostgreSQL 的支持范围与已验证版本。
 - 绝对路径、本机用户名、IDE 隐式环境变量和未记录的手工数据库操作不得成为启动条件。
 - “本机已经有数据”不能替代 migration 和 seed。
 
@@ -342,7 +342,7 @@ MVP 合约以开发计划第 7 节为准：
 - 应用配置通过环境变量注入；仓库只提交 `.env.example`，禁止提交真实 secret。
 - CORS 只允许已知 Web origin，禁止用 `*` 掩盖配置问题。
 - 端口、数据库 URL 和 API URL 不得硬编码作者机器路径或 IP。
-- Python `requirements.txt` 必须对直接依赖和解析后的传递依赖使用 `==` 精确版本，不允许无版本、`>=` 或浮动范围；虚拟环境固定使用 `py -3.12` 创建。
+- Python `requirements.txt` 必须对直接依赖和解析后的传递依赖使用 `==` 精确版本，不允许无版本、`>=` 或浮动范围；虚拟环境使用自动发现或显式指定的 Python 3.11–3.14 创建。
 - Node 依赖必须提交 `package-lock.json` 并由脚本使用 `npm ci`；禁止只依赖未锁定的本机 `node_modules`。
 - 新增依赖前必须说明它解决的具体问题；标准库或现有依赖足够时不加包。
 - 禁止提交本机数据库数据、缓存、虚拟环境、`node_modules`、build 输出、录屏和个人文件。

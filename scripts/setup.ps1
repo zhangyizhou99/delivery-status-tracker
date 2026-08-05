@@ -1,14 +1,23 @@
 [CmdletBinding()]
-param()
+param(
+    [string]$PostgresBin = $env:POSTGRES_BIN,
+    [string]$PostgresService = $env:POSTGRES_SERVICE,
+    [string]$PythonExecutable = $env:PYTHON_EXECUTABLE,
+    [string]$NodeBin = $env:NODE_BIN
+)
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'postgres.ps1')
+. (Join-Path $PSScriptRoot 'runtime.ps1')
+Assert-SupportedPowerShell
+
 $rootDirectory = Split-Path -Parent $PSScriptRoot
 $backendDirectory = Join-Path $rootDirectory 'backend'
 $frontendDirectory = Join-Path $rootDirectory 'frontend'
-$pythonExecutable = Join-Path $backendDirectory '.venv\Scripts\python.exe'
-$postgresBinDirectory = 'C:\Program Files\PostgreSQL\16\bin'
+$venvPythonExecutable = Join-Path $backendDirectory '.venv\Scripts\python.exe'
+$postgresBinDirectory = Resolve-PostgresBinDirectory -RequestedPath $PostgresBin
 $psqlExecutable = Join-Path $postgresBinDirectory 'psql.exe'
 $pgIsReadyExecutable = Join-Path $postgresBinDirectory 'pg_isready.exe'
 
@@ -20,29 +29,14 @@ function Assert-LastExitCode {
     }
 }
 
-foreach ($path in @($psqlExecutable, $pgIsReadyExecutable)) {
-    if (-not (Test-Path -LiteralPath $path)) {
-        throw "Required PostgreSQL 16 tool was not found: $path"
-    }
-}
-
-$pythonLauncher = Get-Command 'py.exe' -ErrorAction SilentlyContinue
-if (-not $pythonLauncher) {
-    throw 'Python Launcher is required. Install Python 3.12 and ensure py.exe is available.'
-}
-
-$nodeExecutable = Get-Command 'node.exe' -ErrorAction SilentlyContinue
-$npmExecutable = Get-Command 'npm.cmd' -ErrorAction SilentlyContinue
-if (-not $nodeExecutable -or -not $npmExecutable) {
-    throw 'Node.js and npm are required.'
-}
+$nodeRuntime = Resolve-NodeRuntime -RequestedBin $NodeBin
 
 & $pgIsReadyExecutable -h '127.0.0.1' -p 5432 -q
 if ($LASTEXITCODE -ne 0) {
-    $postgresService = Get-Service -Name 'postgresql-x64-16' -ErrorAction SilentlyContinue
-    if (-not $postgresService) {
-        throw 'The PostgreSQL 16 Windows service was not found.'
-    }
+    $postgresServiceName = Resolve-PostgresServiceName `
+        -RequestedName $PostgresService `
+        -BinDirectory $postgresBinDirectory
+    $postgresService = Get-Service -Name $postgresServiceName
 
     if ($postgresService.Status -ne 'Running') {
         Start-Service -Name $postgresService.Name
@@ -52,19 +46,30 @@ if ($LASTEXITCODE -ne 0) {
     Assert-LastExitCode 'PostgreSQL readiness check'
 }
 
-if (-not (Test-Path -LiteralPath $pythonExecutable)) {
-    & $pythonLauncher.Source -3.12 -m venv (Join-Path $backendDirectory '.venv')
-    Assert-LastExitCode 'Python 3.12 virtual environment creation'
+if (-not (Test-Path -LiteralPath $venvPythonExecutable)) {
+    $pythonRuntime = Resolve-PythonRuntime -RequestedExecutable $PythonExecutable
+    $venvArguments = @($pythonRuntime.PrefixArguments) + @(
+        '-m',
+        'venv',
+        (Join-Path $backendDirectory '.venv')
+    )
+    & $pythonRuntime.Executable @venvArguments
+    Assert-LastExitCode "Python $($pythonRuntime.Version) virtual environment creation"
 }
 
-& $pythonExecutable -m pip install --disable-pip-version-check -r (Join-Path $backendDirectory 'requirements.txt')
+$venvPythonVersion = Get-PythonRuntimeVersion -Executable $venvPythonExecutable
+if (-not (Test-SupportedPythonVersion -Version $venvPythonVersion)) {
+    throw "backend/.venv must use Python 3.11 through 3.14; found $venvPythonVersion. Remove backend/.venv and rerun setup."
+}
+
+& $venvPythonExecutable -m pip install --disable-pip-version-check -r (Join-Path $backendDirectory 'requirements.txt')
 Assert-LastExitCode 'Backend dependency installation'
 
 if (-not (Test-Path -LiteralPath (Join-Path $frontendDirectory 'package-lock.json'))) {
     throw 'frontend/package-lock.json is required for reproducible installation.'
 }
 
-& $npmExecutable.Source --prefix $frontendDirectory ci
+& $nodeRuntime.NpmExecutable --prefix $frontendDirectory ci
 Assert-LastExitCode 'Frontend dependency installation'
 
 $applicationConnectionReady = $false
@@ -116,4 +121,12 @@ END
     }
 }
 
-Write-Host 'Setup complete.' -ForegroundColor Green
+$env:PGPASSWORD = 'tracker'
+try {
+    $postgresServerMajorVersion = Assert-SupportedPostgresServer -PsqlExecutable $psqlExecutable
+}
+finally {
+    Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+}
+
+Write-Host "Setup complete with PostgreSQL $postgresServerMajorVersion, Python $venvPythonVersion, and Node.js $($nodeRuntime.Version)." -ForegroundColor Green

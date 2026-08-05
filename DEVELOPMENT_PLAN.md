@@ -27,7 +27,7 @@
 | --- | --- | --- | --- | --- |
 | R1 | `[REQ-MUST]` | 使用 PostgreSQL 设计 shipment 数据结构 | Alembic migration 创建 `shipments` 表、约束和索引 | migration 可在空库执行；可用 `psql` 查看结构 |
 | R2 | `[REQ-MUST]` | 把提供的 CSV 数据载入数据库，载入方式自选 | 启动时执行幂等 seed，读取真实 `data/shipments.csv` | 首次启动恰好 20 条；重启仍是 20 条 |
-| R3 | `[REQ-MUST]` | 后端语言和框架是 Python/FastAPI | Python 3.12 + FastAPI | `/docs` 可访问，API 测试通过 |
+| R3 | `[REQ-MUST]` | 后端语言和框架是 Python/FastAPI | Python 3.11–3.14 + FastAPI | `/docs` 可访问，API 测试通过 |
 | R4 | `[REQ-MUST]` | 提供列出 shipment 及当前状态的接口 | `GET /api/shipments` | 返回 20 条、顺序稳定、字段正确 |
 | R5 | `[REQ-MUST]` | 提供更新 shipment 状态的接口 | `PATCH /api/shipments/{reference}/status` | 合法状态更新后返回并持久化新值 |
 | R6 | `[REQ-MUST]` | 按生命周期拒绝非法状态转换，并给出清楚错误 | 单一领域规则函数 + HTTP `409` 结构化错误 | 跳级、倒退、终态变更测试通过 |
@@ -67,7 +67,7 @@
 
 ### 3.1 一句话定义
 
-在已安装 PostgreSQL 16、Python 3.12 和 Node.js 的 Windows 机器上，从仓库根目录运行一个 PowerShell 命令后，可以打开网页看到 CSV 中恰好 20 条 shipment，完成合法状态更新且无需刷新页面；非法更新由 FastAPI 清楚拒绝；数据在服务重启后保留；自动化测试和 README 命令均真实可用。
+在已安装兼容 PostgreSQL、Python 和 Node.js 的 Windows 机器上，从仓库根目录运行 PowerShell 脚本后，可以打开网页看到 CSV 中恰好 20 条 shipment，完成合法状态更新且无需刷新页面；非法更新由 FastAPI 清楚拒绝；数据在服务重启后保留；自动化测试和 README 命令均真实可用。
 
 ### 3.2 MVP 完成定义
 
@@ -107,13 +107,13 @@
 | 层 | 选择 | 理由 |
 | --- | --- | --- |
 | 运行与编排 | Windows PowerShell 5.1 scripts | 当前 Demo 只在 Windows 运行；避免 WSL 安装阻塞，同时提供单命令启动、测试和重置 |
-| 数据库 | PostgreSQL 16 Windows service | 满足硬性要求；支持约束、事务和行锁；服务由官方 Windows 安装器管理 |
+| 数据库 | PostgreSQL 14–18 Windows service | 满足硬性要求；支持约束、事务和行锁；本机已验证 PostgreSQL 16 |
 | 数据迁移 | Alembic | schema 可追踪、可在空库重建，比运行时 `create_all` 更可解释 |
-| 后端运行时 | Python 3.12 | 稳定、类型能力完整、FastAPI 生态成熟；完整 `requirements.txt` 使用 `==` 锁定直接和传递依赖 |
+| 后端运行时 | Python 3.11–3.14 | `StrEnum` 决定最低版本为 3.11；脚本自动选择最高兼容版本；完整 `requirements.txt` 使用 `==` 锁定直接和传递依赖 |
 | API | FastAPI + Pydantic | brief 指定 FastAPI；自动校验和 OpenAPI 便于现场展示非法请求 |
 | ORM/驱动 | SQLAlchemy 2.x 同步 Session + psycopg 3 | 业务量小，同步路径更少、更易在时间盒内测试；无需为 20 条记录引入异步复杂度 |
 | 前端 | React + TypeScript + Vite | React 是硬性要求；TypeScript 保证 API 状态枚举和响应类型；Vite 启动快且适合现场修改 |
-| Node 基线 | Node 24（本机已验证版本） | 使用现有运行时，具体项目依赖由 `package-lock.json` 锁定 |
+| Node 基线 | `^20.19.0` 或 `>=22.12.0` | 遵循 Vite 8 声明的引擎范围；本机已验证 Node 24.18，具体依赖由 `package-lock.json` 锁定 |
 | 前端数据访问 | 原生 `fetch` + 组件状态 | 只有一个列表和一个 mutation，不需要额外缓存或全局状态库 |
 | 样式 | 语义化 HTML + 原生 CSS | 减少搭建时间和依赖；足以做清晰、响应式、可访问的操作型界面 |
 | 后端测试 | pytest + FastAPI TestClient | 能同时覆盖纯领域规则和真实 HTTP 合约 |
@@ -138,13 +138,13 @@
 flowchart LR
     Browser[Browser] -->|HTTP :5173| Web[React + Vite]
     Web -->|JSON HTTP :8000| API[FastAPI]
-    API -->|SQL transaction| DB[(PostgreSQL 16)]
+    API -->|SQL transaction| DB[(PostgreSQL 14-18)]
     CSV[shipments.csv] -->|idempotent seed| API
 ```
 
 Windows 原生进程：
 
-- `postgresql-x64-16`：PostgreSQL Windows 服务，默认监听 localhost:5432。
+- PostgreSQL 14–18 Windows 服务：兼容版本和名称由脚本自动发现或显式指定，监听 localhost:5432。
 - `api`：`backend/.venv` 中运行 Uvicorn，端口默认 8000。
 - `web`：Node/Vite 开发服务器，端口默认 5173。
 - `scripts/dev.ps1`：检查数据库、执行 migration/seed，并管理 API 与 Web 子进程。
@@ -492,7 +492,7 @@ GET /api/health
 任务：
 
 1. 建 backend、frontend 最小目录和依赖文件。
-2. 创建 `setup.ps1` 和 `dev.ps1`，检查 PostgreSQL 16、Python 3.12 和 Node，并管理 API/Web 子进程。
+2. 创建 `setup.ps1` 和 `dev.ps1`，检查兼容 PostgreSQL、Python 和 Node，并管理 API/Web 子进程。
 3. 用 `pg_isready` 检查 PostgreSQL Windows 服务；API health endpoint 同时检查数据库连接。
 4. 添加 API `/api/health` 和最小 React 页面。
 5. 配置显式 CORS origin 和 `VITE_API_URL`，不使用 `*` 掩盖设置错误。

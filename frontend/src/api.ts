@@ -24,6 +24,26 @@ export type ShipmentResetResponse = ShipmentListResponse & {
 
 export type ShipmentSort = 'reference' | 'last_updated'
 
+export type ShipmentStatusConflictDetail = {
+  code: 'invalid_status_transition'
+  message: string
+  current_status: ShipmentStatus
+  requested_status: ShipmentStatus
+  allowed_statuses: ShipmentStatus[]
+}
+
+export class ApiError extends Error {
+  readonly status: number
+  readonly detail: unknown
+
+  constructor(status: number, message: string, detail: unknown = null) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.detail = detail
+  }
+}
+
 export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
 function isHealthResponse(value: unknown): value is HealthResponse {
@@ -65,6 +85,32 @@ function isShipmentStatus(value: unknown): value is ShipmentStatus {
   return typeof value === 'string' && shipmentStatuses.includes(value as ShipmentStatus)
 }
 
+function isShipmentStatusConflictDetail(value: unknown): value is ShipmentStatusConflictDetail {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const candidate = value as Record<string, unknown>
+  return (
+    candidate.code === 'invalid_status_transition' &&
+    typeof candidate.message === 'string' &&
+    isShipmentStatus(candidate.current_status) &&
+    isShipmentStatus(candidate.requested_status) &&
+    Array.isArray(candidate.allowed_statuses) &&
+    candidate.allowed_statuses.every(isShipmentStatus)
+  )
+}
+
+export function isShipmentStatusConflict(
+  error: unknown,
+): error is ApiError & { detail: ShipmentStatusConflictDetail } {
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    isShipmentStatusConflictDetail(error.detail)
+  )
+}
+
 function isShipment(value: unknown): value is Shipment {
   if (typeof value !== 'object' || value === null) {
     return false
@@ -97,7 +143,7 @@ function isShipmentListResponse(value: unknown): value is ShipmentListResponse {
 
 export async function getShipments(
   sort: ShipmentSort,
-  signal: AbortSignal,
+  signal?: AbortSignal,
 ): Promise<ShipmentListResponse> {
   const response = await fetch(`${API_URL}/api/shipments?sort=${sort}`, { signal })
 
@@ -120,7 +166,7 @@ function isShipmentResetResponse(value: unknown): value is ShipmentResetResponse
   )
 }
 
-async function errorMessage(response: Response, fallback: string): Promise<string> {
+async function responseError(response: Response, fallback: string): Promise<ApiError> {
   try {
     const payload: unknown = await response.json()
     if (typeof payload === 'object' && payload !== null) {
@@ -128,7 +174,7 @@ async function errorMessage(response: Response, fallback: string): Promise<strin
       if (typeof detail === 'object' && detail !== null) {
         const message = (detail as Record<string, unknown>).message
         if (typeof message === 'string') {
-          return message
+          return new ApiError(response.status, message, detail)
         }
       }
     }
@@ -136,7 +182,7 @@ async function errorMessage(response: Response, fallback: string): Promise<strin
     // Fall back to the HTTP status when the response has no readable JSON body.
   }
 
-  return `${fallback} (HTTP ${response.status})`
+  return new ApiError(response.status, `${fallback} (HTTP ${response.status})`)
 }
 
 export async function updateShipmentStatus(
@@ -153,7 +199,7 @@ export async function updateShipmentStatus(
   )
 
   if (!response.ok) {
-    throw new Error(await errorMessage(response, 'Unable to update shipment'))
+    throw await responseError(response, 'Unable to update shipment')
   }
 
   const payload: unknown = await response.json()
@@ -170,7 +216,7 @@ export async function resetShipmentStatuses(sort: ShipmentSort): Promise<Shipmen
   })
 
   if (!response.ok) {
-    throw new Error(await errorMessage(response, 'Unable to reset shipment statuses'))
+    throw await responseError(response, 'Unable to reset shipment statuses')
   }
 
   const payload: unknown = await response.json()
